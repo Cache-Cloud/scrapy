@@ -9,9 +9,10 @@ from io import StringIO
 from pathlib import Path
 from shutil import rmtree
 from tempfile import TemporaryFile, mkdtemp
-from threading import Timer
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest import mock
+
+import pytest
 
 import scrapy
 from scrapy.cmdline import _pop_command_name, _print_unknown_command_msg
@@ -21,13 +22,18 @@ from scrapy.utils.python import to_unicode
 from scrapy.utils.reactor import _asyncio_reactor_path
 from scrapy.utils.test import get_testenv
 
-if TYPE_CHECKING:
-    import os
+
+class EmptyCommand(ScrapyCommand):
+    def short_desc(self) -> str:
+        return ""
+
+    def run(self, args: list[str], opts: argparse.Namespace) -> None:
+        pass
 
 
 class TestCommandSettings:
     def setup_method(self):
-        self.command = ScrapyCommand()
+        self.command = EmptyCommand()
         self.command.settings = Settings()
         self.parser = argparse.ArgumentParser(
             formatter_class=ScrapyHelpFormatter, conflict_handler="resolve"
@@ -92,24 +98,20 @@ class TestProjectBase:
             **popen_kwargs,
         )
 
-        def kill_proc():
+        try:
+            stdout, stderr = p.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
             p.kill()
             p.communicate()
-            raise AssertionError("Command took too much time to complete")
-
-        timer = Timer(15, kill_proc)
-        try:
-            timer.start()
-            stdout, stderr = p.communicate()
-        finally:
-            timer.cancel()
+            pytest.fail("Command took too much time to complete")
 
         return p, to_unicode(stdout), to_unicode(stderr)
 
-    def find_in_file(self, filename: str | os.PathLike, regex) -> re.Match | None:
+    @staticmethod
+    def find_in_file(filename: Path, regex: str) -> re.Match | None:
         """Find first pattern occurrence in file"""
         pattern = re.compile(regex)
-        with Path(filename).open("r", encoding="utf-8") as f:
+        with filename.open("r", encoding="utf-8") as f:
             for line in f:
                 match = pattern.search(line)
                 if match is not None:

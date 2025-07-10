@@ -5,7 +5,9 @@ import csv
 import gzip
 import json
 import lzma
+import marshal
 import os
+import pickle
 import random
 import shutil
 import string
@@ -18,17 +20,17 @@ from io import BytesIO
 from logging import getLogger
 from pathlib import Path
 from string import ascii_letters, digits
-from typing import TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any
 from unittest import mock
 from urllib.parse import quote, urljoin
 from urllib.request import pathname2url
 
 import lxml.etree
 import pytest
+from packaging.version import Version
 from testfixtures import LogCapture
 from twisted.internet import defer
 from twisted.internet.defer import inlineCallbacks
-from twisted.trial import unittest
 from w3lib.url import file_uri_to_path, path_to_file_uri
 from zope.interface import implementer
 from zope.interface.verify import verifyObject
@@ -79,7 +81,7 @@ def mock_google_cloud_storage() -> tuple[Any, Any, Any]:
     """Creates autospec mocks for google-cloud-storage Client, Bucket and Blob
     classes and set their proper return values.
     """
-    from google.cloud.storage import Blob, Bucket, Client
+    from google.cloud.storage import Blob, Bucket, Client  # noqa: PLC0415
 
     client_mock = mock.create_autospec(Client)
 
@@ -161,7 +163,7 @@ class TestFileFeedStorage:
         assert storage.path == path
 
 
-class TestFTPFeedStorage(unittest.TestCase):
+class TestFTPFeedStorage:
     def get_test_spider(self, settings=None):
         class TestSpider(scrapy.Spider):
             name = "test_spider"
@@ -236,6 +238,11 @@ class TestFTPFeedStorage(unittest.TestCase):
         assert st.password == string.punctuation
 
 
+class MyBlockingFeedStorage(BlockingFeedStorage):
+    def _store_in_thread(self, file: IO[bytes]) -> None:
+        return
+
+
 class TestBlockingFeedStorage:
     def get_test_spider(self, settings=None):
         class TestSpider(scrapy.Spider):
@@ -245,14 +252,14 @@ class TestBlockingFeedStorage:
         return TestSpider.from_crawler(crawler)
 
     def test_default_temp_dir(self):
-        b = BlockingFeedStorage()
+        b = MyBlockingFeedStorage()
 
         storage_file = b.open(self.get_test_spider())
         storage_dir = Path(storage_file.name).parent
         assert str(storage_dir) == tempfile.gettempdir()
 
     def test_temp_file(self, tmp_path):
-        b = BlockingFeedStorage()
+        b = MyBlockingFeedStorage()
 
         spider = self.get_test_spider({"FEED_TEMPDIR": str(tmp_path)})
         storage_file = b.open(spider)
@@ -260,7 +267,7 @@ class TestBlockingFeedStorage:
         assert storage_dir == tmp_path
 
     def test_invalid_folder(self, tmp_path):
-        b = BlockingFeedStorage()
+        b = MyBlockingFeedStorage()
 
         invalid_path = tmp_path / "invalid_path"
         spider = self.get_test_spider({"FEED_TEMPDIR": str(invalid_path)})
@@ -270,7 +277,7 @@ class TestBlockingFeedStorage:
 
 
 @pytest.mark.requires_boto3
-class TestS3FeedStorage(unittest.TestCase):
+class TestS3FeedStorage:
     def test_parse_credentials(self):
         aws_credentials = {
             "AWS_ACCESS_KEY_ID": "settings_key",
@@ -499,10 +506,10 @@ class TestS3FeedStorage(unittest.TestCase):
         assert "S3 does not support appending to files" in str(log)
 
 
-class TestGCSFeedStorage(unittest.TestCase):
+class TestGCSFeedStorage:
     def test_parse_settings(self):
         try:
-            from google.cloud.storage import Client  # noqa: F401
+            from google.cloud.storage import Client  # noqa: F401,PLC0415
         except ImportError:
             pytest.skip("GCSFeedStorage requires google-cloud-storage")
 
@@ -516,7 +523,7 @@ class TestGCSFeedStorage(unittest.TestCase):
 
     def test_parse_empty_acl(self):
         try:
-            from google.cloud.storage import Client  # noqa: F401
+            from google.cloud.storage import Client  # noqa: F401,PLC0415
         except ImportError:
             pytest.skip("GCSFeedStorage requires google-cloud-storage")
 
@@ -533,7 +540,7 @@ class TestGCSFeedStorage(unittest.TestCase):
     @deferred_f_from_coro_f
     async def test_store(self):
         try:
-            from google.cloud.storage import Client  # noqa: F401
+            from google.cloud.storage import Client  # noqa: F401,PLC0415
         except ImportError:
             pytest.skip("GCSFeedStorage requires google-cloud-storage")
 
@@ -653,7 +660,7 @@ class LogOnStoreFileStorage:
         file.close()
 
 
-class TestFeedExportBase(ABC, unittest.TestCase):
+class TestFeedExportBase(ABC):
     mockserver: MockServer
 
     class MyItem(scrapy.Item):
@@ -671,18 +678,18 @@ class TestFeedExportBase(ABC, unittest.TestCase):
         return Path(self.temp_dir, inter_dir, filename)
 
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.mockserver = MockServer()
         cls.mockserver.__enter__()
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
         cls.mockserver.__exit__(None, None, None)
 
-    def setUp(self):
+    def setup_method(self):
         self.temp_dir = tempfile.mkdtemp()
 
-    def tearDown(self):
+    def teardown_method(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     async def exported_data(
@@ -727,7 +734,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
         await self.assertExportedMarshal(items, rows, settings)
         await self.assertExportedMultiple(items, rows, settings)
 
-    async def assertExportedCsv(
+    async def assertExportedCsv(  # noqa: B027
         self,
         items: Iterable[Any],
         header: Iterable[str],
@@ -736,7 +743,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
     ) -> None:
         pass
 
-    async def assertExportedJsonLines(
+    async def assertExportedJsonLines(  # noqa: B027
         self,
         items: Iterable[Any],
         rows: Iterable[dict[str, Any]],
@@ -744,7 +751,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
     ) -> None:
         pass
 
-    async def assertExportedXml(
+    async def assertExportedXml(  # noqa: B027
         self,
         items: Iterable[Any],
         rows: Iterable[dict[str, Any]],
@@ -752,7 +759,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
     ) -> None:
         pass
 
-    async def assertExportedMultiple(
+    async def assertExportedMultiple(  # noqa: B027
         self,
         items: Iterable[Any],
         rows: Iterable[dict[str, Any]],
@@ -760,7 +767,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
     ) -> None:
         pass
 
-    async def assertExportedPickle(
+    async def assertExportedPickle(  # noqa: B027
         self,
         items: Iterable[Any],
         rows: Iterable[dict[str, Any]],
@@ -768,7 +775,7 @@ class TestFeedExportBase(ABC, unittest.TestCase):
     ) -> None:
         pass
 
-    async def assertExportedMarshal(
+    async def assertExportedMarshal(  # noqa: B027
         self,
         items: Iterable[Any],
         rows: Iterable[dict[str, Any]],
@@ -971,7 +978,6 @@ class TestFeedExport(TestFeedExportBase):
         )
         data = await self.exported_data(items, settings)
         expected = [{k: v for k, v in row.items() if v} for row in rows]
-        import pickle
 
         result = self._load_until_eof(data["pickle"], load_func=pickle.load)
         assert result == expected
@@ -992,7 +998,6 @@ class TestFeedExport(TestFeedExportBase):
         )
         data = await self.exported_data(items, settings)
         expected = [{k: v for k, v in row.items() if v} for row in rows]
-        import marshal
 
         result = self._load_until_eof(data["marshal"], load_func=marshal.load)
         assert result == expected
@@ -2295,9 +2300,6 @@ class TestFeedPostProcessedExports(TestFeedExportBase):
 
     @deferred_f_from_coro_f
     async def test_exports_compatibility_with_postproc(self):
-        import marshal
-        import pickle
-
         filename_to_expected = {
             self._named_tempfile("csv"): b"foo\r\nbar\r\n",
             self._named_tempfile("json"): b'[\n{"foo": "bar"}\n]',
@@ -2479,7 +2481,6 @@ class TestBatchDeliveries(TestFeedExportBase):
         batch_size = Settings(settings).getint("FEED_EXPORT_BATCH_ITEM_COUNT")
         rows = [{k: v for k, v in row.items() if v} for row in rows]
         data = await self.exported_data(items, settings)
-        import pickle
 
         for batch in data["pickle"]:
             got_batch = self._load_until_eof(batch, load_func=pickle.load)
@@ -2500,7 +2501,6 @@ class TestBatchDeliveries(TestFeedExportBase):
         batch_size = Settings(settings).getint("FEED_EXPORT_BATCH_ITEM_COUNT")
         rows = [{k: v for k, v in row.items() if v} for row in rows]
         data = await self.exported_data(items, settings)
-        import marshal
 
         for batch in data["marshal"]:
             got_batch = self._load_until_eof(batch, load_func=marshal.load)
@@ -2709,9 +2709,8 @@ class TestBatchDeliveries(TestFeedExportBase):
             stubs = []
 
             def open(self, *args, **kwargs):
-                from botocore import __version__ as botocore_version
-                from botocore.stub import ANY, Stubber
-                from packaging.version import Version
+                from botocore import __version__ as botocore_version  # noqa: PLC0415
+                from botocore.stub import ANY, Stubber  # noqa: PLC0415
 
                 expected_params = {
                     "Body": ANY,
@@ -2907,10 +2906,9 @@ class TestURIParams(ABC):
                 match="The `FEED_URI` and `FEED_FORMAT` settings have been deprecated",
             ):
                 crawler = get_crawler(settings_dict=settings)
-                feed_exporter = FeedExporter.from_crawler(crawler)
         else:
             crawler = get_crawler(settings_dict=settings)
-            feed_exporter = FeedExporter.from_crawler(crawler)
+        feed_exporter = crawler.get_extension(FeedExporter)
         return crawler, feed_exporter
 
     def test_default(self):

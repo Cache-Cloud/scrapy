@@ -5,6 +5,7 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from datetime import datetime
+from ftplib import FTP
 from io import BytesIO
 from pathlib import Path
 from posixpath import split
@@ -18,7 +19,6 @@ import attr
 import pytest
 from itemadapter import ItemAdapter
 from twisted.internet.defer import inlineCallbacks
-from twisted.trial import unittest
 
 from scrapy.http import Request, Response
 from scrapy.item import Field, Item
@@ -29,9 +29,7 @@ from scrapy.pipelines.files import (
     GCSFilesStore,
     S3FilesStore,
 )
-from scrapy.utils.test import (
-    get_crawler,
-)
+from scrapy.utils.test import get_crawler
 from tests.mockserver import MockFTPServer
 
 from .test_pipeline_media import _mocked_download_func
@@ -40,7 +38,7 @@ from .test_pipeline_media import _mocked_download_func
 def get_gcs_content_and_delete(
     bucket: Any, path: str
 ) -> tuple[bytes, list[dict[str, str]], Any]:
-    from google.cloud import storage
+    from google.cloud import storage  # noqa: PLC0415
 
     client = storage.Client(project=os.environ.get("GCS_PROJECT_ID"))
     bucket = client.get_bucket(bucket)
@@ -59,8 +57,6 @@ def get_ftp_content_and_delete(
     password: str,
     use_active_mode: bool = False,
 ) -> bytes:
-    from ftplib import FTP
-
     ftp = FTP()
     ftp.connect(host, port)
     ftp.login(username, password)
@@ -78,8 +74,8 @@ def get_ftp_content_and_delete(
     return b"".join(ftp_data)
 
 
-class TestFilesPipeline(unittest.TestCase):
-    def setUp(self):
+class TestFilesPipeline:
+    def setup_method(self):
         self.tempdir = mkdtemp()
         settings_dict = {"FILES_STORE": self.tempdir}
         crawler = get_crawler(spidercls=None, settings_dict=settings_dict)
@@ -87,7 +83,7 @@ class TestFilesPipeline(unittest.TestCase):
         self.pipeline.download_func = _mocked_download_func
         self.pipeline.open_spider(None)
 
-    def tearDown(self):
+    def teardown_method(self):
         rmtree(self.tempdir)
 
     def test_file_path(self):
@@ -541,7 +537,7 @@ class TestFilesPipelineCustomSettings:
 
 
 @pytest.mark.requires_botocore
-class TestS3FilesStore(unittest.TestCase):
+class TestS3FilesStore:
     @inlineCallbacks
     def test_persist(self):
         bucket = "mybucket"
@@ -553,7 +549,7 @@ class TestS3FilesStore(unittest.TestCase):
         content_type = "image/png"
 
         store = S3FilesStore(uri)
-        from botocore.stub import Stubber
+        from botocore.stub import Stubber  # noqa: PLC0415
 
         with Stubber(store.s3_client) as stub:
             stub.add_response(
@@ -591,7 +587,7 @@ class TestS3FilesStore(unittest.TestCase):
         last_modified = datetime(2019, 12, 1)
 
         store = S3FilesStore(uri)
-        from botocore.stub import Stubber
+        from botocore.stub import Stubber  # noqa: PLC0415
 
         with Stubber(store.s3_client) as stub:
             stub.add_response(
@@ -618,7 +614,7 @@ class TestS3FilesStore(unittest.TestCase):
 @pytest.mark.skipif(
     "GCS_PROJECT_ID" not in os.environ, reason="GCS_PROJECT_ID not found"
 )
-class TestGCSFilesStore(unittest.TestCase):
+class TestGCSFilesStore:
     @inlineCallbacks
     def test_persist(self):
         uri = os.environ.get("GCS_TEST_FILE_URI")
@@ -650,7 +646,7 @@ class TestGCSFilesStore(unittest.TestCase):
         already uploaded files.
         """
         try:
-            import google.cloud.storage  # noqa: F401
+            import google.cloud.storage  # noqa: F401,PLC0415
         except ModuleNotFoundError:
             pytest.skip("google-cloud-storage is not installed")
         with (
@@ -670,7 +666,7 @@ class TestGCSFilesStore(unittest.TestCase):
             store.bucket.get_blob.assert_called_with(expected_blob_path)
 
 
-class TestFTPFileStore(unittest.TestCase):
+class TestFTPFileStore:
     @inlineCallbacks
     def test_persist(self):
         data = b"TestFTPFilesStore: \xe2\x98\x83"

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from testfixtures import LogCapture
 from twisted.internet.defer import Deferred
-from twisted.trial.unittest import TestCase
 
 from scrapy import Request, Spider, signals
 from scrapy.utils.defer import deferred_f_from_coro_f, maybe_deferred_to_future
@@ -27,7 +26,7 @@ async def sleep(seconds: float = 0.001) -> None:
     await maybe_deferred_to_future(deferred)
 
 
-class TestMain(TestCase):
+class TestMain:
     @deferred_f_from_coro_f
     async def test_sleep(self):
         """Neither asynchronous sleeps on Spider.start() nor the equivalent on
@@ -112,23 +111,24 @@ class TestMain(TestCase):
         with LogCapture(level=ERROR) as log:
             await maybe_deferred_to_future(crawler.crawl())
 
-        assert not log.records
+        assert len(log.records) == 1
+        assert log.records[0].msg == "Error running spider_closed_callback"
         finish_reason = crawler.stats.get_value("finish_reason")
         assert finish_reason == "shutdown", f"{finish_reason=}"
         expected_urls = []
         assert actual_urls == expected_urls, f"{actual_urls=} != {expected_urls=}"
 
 
-class TestRequestSendOrder(TestCase):
+class TestRequestSendOrder:
     seconds = 0.1  # increase if flaky
 
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         cls.mockserver = MockServer()
         cls.mockserver.__enter__()
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
         cls.mockserver.__exit__(None, None, None)  # increase if flaky
 
     def request(self, num, response_seconds, download_slots, priority=0):

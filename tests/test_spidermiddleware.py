@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterable
 from inspect import isasyncgen
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest import mock
 
 import pytest
 from testfixtures import LogCapture
 from twisted.internet import defer
-from twisted.trial.unittest import TestCase
 
 from scrapy.core.spidermw import SpiderMiddlewareManager
 from scrapy.exceptions import _InvalidOutput
@@ -18,9 +17,12 @@ from scrapy.utils.asyncgen import collect_asyncgen
 from scrapy.utils.defer import deferred_f_from_coro_f, maybe_deferred_to_future
 from scrapy.utils.test import get_crawler
 
+if TYPE_CHECKING:
+    from twisted.python.failure import Failure
 
-class TestSpiderMiddleware(TestCase):
-    def setUp(self):
+
+class TestSpiderMiddleware:
+    def setup_method(self):
         self.request = Request("http://example.com/index.html")
         self.response = Response(self.request.url, request=self.request)
         self.crawler = get_crawler(Spider, {"SPIDER_MIDDLEWARES_BASE": {}})
@@ -31,7 +33,13 @@ class TestSpiderMiddleware(TestCase):
         """Execute spider mw manager's scrape_response method and return the result.
         Raise exception in case of failure.
         """
-        scrape_func = mock.MagicMock()
+
+        def scrape_func(
+            response: Response | Failure, request: Request
+        ) -> defer.Deferred[Iterable[Any]]:
+            it = mock.MagicMock()
+            return defer.succeed(it)
+
         return await maybe_deferred_to_future(
             self.mwman.scrape_response(
                 scrape_func, self.response, self.request, self.spider
@@ -122,10 +130,15 @@ class TestBaseAsyncSpiderMiddleware(TestSpiderMiddleware):
             start_index = 10
         return {i: c for c, i in enumerate(mw_classes, start=start_index)}
 
-    def _scrape_func(self, *args, **kwargs):
+    def _callback(self) -> Any:
         yield {"foo": 1}
         yield {"foo": 2}
         yield {"foo": 3}
+
+    def _scrape_func(
+        self, response: Response | Failure, request: Request
+    ) -> defer.Deferred[Iterable[Any] | AsyncIterator[Any]]:
+        return defer.succeed(self._callback())
 
     async def _get_middleware_result(
         self, *mw_classes: type[Any], start_index: int | None = None
@@ -272,8 +285,8 @@ class TestProcessSpiderOutputSimple(TestBaseAsyncSpiderMiddleware):
 class TestProcessSpiderOutputAsyncGen(TestProcessSpiderOutputSimple):
     """process_spider_output tests for async generator callbacks"""
 
-    async def _scrape_func(self, *args, **kwargs):
-        for item in super()._scrape_func():
+    async def _callback(self) -> Any:
+        for item in super()._callback():
             yield item
 
     @deferred_f_from_coro_f
@@ -503,8 +516,8 @@ class TestBuiltinMiddlewareSimple(TestBaseAsyncSpiderMiddleware):
 
 
 class TestBuiltinMiddlewareAsyncGen(TestBuiltinMiddlewareSimple):
-    async def _scrape_func(self, *args, **kwargs):
-        for item in super()._scrape_func():
+    async def _callback(self) -> Any:
+        for item in super()._callback():
             yield item
 
     @deferred_f_from_coro_f
@@ -546,7 +559,7 @@ class TestProcessSpiderException(TestBaseAsyncSpiderMiddleware):
     MW_EXC_SIMPLE = ProcessSpiderExceptionSimpleIterableMiddleware
     MW_EXC_ASYNCGEN = ProcessSpiderExceptionAsyncIteratorMiddleware
 
-    def _scrape_func(self, *args, **kwargs):
+    def _callback(self) -> Any:
         1 / 0
 
     async def _test_asyncgen_nodowngrade(self, *mw_classes: type[Any]) -> None:

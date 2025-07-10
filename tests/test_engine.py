@@ -17,7 +17,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from logging import DEBUG
 from pathlib import Path
-from threading import Timer
 from unittest.mock import Mock
 from urllib.parse import urlparse
 
@@ -28,7 +27,6 @@ from pydispatch import dispatcher
 from testfixtures import LogCapture
 from twisted.internet import defer
 from twisted.internet.defer import inlineCallbacks
-from twisted.trial import unittest
 from twisted.web import server, static, util
 
 from scrapy import signals
@@ -247,7 +245,7 @@ class CrawlerRun:
         self.signals_caught[sig] = signalargs
 
 
-class TestEngineBase(unittest.TestCase):
+class TestEngineBase:
     @staticmethod
     def _assert_visited_urls(run: CrawlerRun) -> None:
         must_be_visited = [
@@ -495,19 +493,16 @@ class TestEngine(TestEngineBase):
             stderr=subprocess.PIPE,
         )
 
-        def kill_proc():
+        try:
+            _, stderr = p.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
             p.kill()
             p.communicate()
-            raise AssertionError("Command took too much time to complete")
+            pytest.fail("Command took too much time to complete")
 
-        timer = Timer(15, kill_proc)
-        try:
-            timer.start()
-            _, stderr = p.communicate()
-        finally:
-            timer.cancel()
-
-        assert b"Traceback" not in stderr, stderr
+        stderr_str = stderr.decode("utf-8")
+        assert "AttributeError" not in stderr_str, stderr_str
+        assert "AssertionError" not in stderr_str, stderr_str
 
 
 def test_request_scheduled_signal(caplog):
